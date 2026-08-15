@@ -12,6 +12,7 @@ ConfigViewModel::ConfigViewModel(QObject* parent)
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalPreferredVideoCodecChanged, this, &ConfigViewModel::preferredVideoCodecChanged);
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalAutoPrivacyScreenOnConnectChanged, this, &ConfigViewModel::autoPrivacyScreenOnConnectChanged);
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalRemoteTabBarPinnedChanged, this, &ConfigViewModel::remoteTabBarPinnedChanged);
+    connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalRemoteDesktopMiniMapVisibleChanged, this, &ConfigViewModel::remoteDesktopMiniMapVisibleChanged);
     connect(&core::LocalConfigCenter::instance(), &core::LocalConfigCenter::signalApiKeyChanged, this, &ConfigViewModel::apiKeyChanged);
 }
 
@@ -91,6 +92,16 @@ bool ConfigViewModel::remoteTabBarPinned()
 void ConfigViewModel::setRemoteTabBarPinned(bool value)
 {
     core::LocalConfigCenter::instance().setRemoteTabBarPinned(value);
+}
+
+bool ConfigViewModel::remoteDesktopMiniMapVisible()
+{
+    return core::LocalConfigCenter::instance().remoteDesktopMiniMapVisible();
+}
+
+void ConfigViewModel::setRemoteDesktopMiniMapVisible(bool value)
+{
+    core::LocalConfigCenter::instance().setRemoteDesktopMiniMapVisible(value);
 }
 
 QString ConfigViewModel::apiKey()

@@ -11,6 +11,7 @@ Item {
     property var clientManager: null
     property var desktopView: null
     property var videoInfo: null  // Video info including original resolution
+    property bool miniMapEnabled: true
     
     // Audio state
     property bool audioEnabled: true  // Default: audio enabled
@@ -55,6 +56,7 @@ Item {
     signal uploadFileRequested()
     signal downloadFileRequested()
     signal showTransferPanelRequested()
+    signal miniMapEnabledRequested(bool enabled)
     
     // Apply framerate boost mode
     function applyFramerateBoostMode(mode) {
@@ -509,10 +511,32 @@ Item {
             }
         }
         
-        // Fit window to remote desktop resolution
+        QDMenuItem {
+            id: displayModeMenuItem
+            text: qsTr("Display Mode")
+            iconText: FluentIconGlyph.zoomModeGlyph
+            hasSubmenu: true
+            enabled: !!root.desktopView
+            onTriggered: {
+                var parentMenu = floatingMenu
+                var windowWidth = root.parent ? root.parent.width : 1920
+                var windowHeight = root.parent ? root.parent.height : 1080
+                var menuX = parentMenu.x + parentMenu.width + Theme.spacingSmall
+                if (menuX + displayModeMenu.width > windowWidth) {
+                    menuX = Math.max(Theme.spacingSmall,
+                                    parentMenu.x - displayModeMenu.width - Theme.spacingSmall)
+                }
+                displayModeMenu.x = menuX
+                displayModeMenu.y = Math.max(Theme.spacingSmall,
+                                             Math.min(parentMenu.y + Theme.buttonHeightMedium * 4,
+                                                      windowHeight - displayModeMenu.height - Theme.spacingSmall))
+                displayModeMenu.open()
+            }
+        }
+
         QDMenuItem {
             text: qsTr("Fit Window")
-            iconText: FluentIconGlyph.fullScreenGlyph
+            iconText: FluentIconGlyph.resizeMouseMediumGlyph
             enabled: root.videoInfo && root.videoInfo.frameWidth > 0 && root.videoInfo.frameHeight > 0
             onTriggered: {
                 console.log("Fit window to remote desktop requested for:", root.deviceId)
@@ -695,6 +719,64 @@ Item {
     }
     
     // Smart Boost submenu (帧率提升模式)
+    QDMenu {
+        id: displayModeMenu
+        parent: root.parent
+        width: 190
+
+        onClosed: {
+            if (floatingMenu.opened) {
+                floatingMenu.close()
+            }
+        }
+
+        QDMenuItem {
+            text: qsTr("Fit to Screen")
+            iconText: FluentIconGlyph.fitPageGlyph
+            checkable: true
+            checked: !!root.desktopView
+                     && root.desktopView.displayMode === root.desktopView.fitToScreenMode
+            onTriggered: {
+                root.desktopView.displayMode = root.desktopView.fitToScreenMode
+                root.showToast(qsTr("Display mode: Fit to Screen"), QDToast.Type.Success)
+            }
+        }
+
+        QDMenuItem {
+            text: qsTr("Original Size")
+            iconText: FluentIconGlyph.zoomGlyph
+            checkable: true
+            checked: !!root.desktopView
+                     && root.desktopView.displayMode === root.desktopView.originalSizeMode
+            onTriggered: {
+                root.desktopView.displayMode = root.desktopView.originalSizeMode
+                root.showToast(qsTr("Display mode: Original Size"), QDToast.Type.Success)
+            }
+        }
+
+        QDMenuItem {
+            text: qsTr("Stretch to Fill")
+            iconText: FluentIconGlyph.resizeMouseWideGlyph
+            checkable: true
+            checked: !!root.desktopView
+                     && root.desktopView.displayMode === root.desktopView.stretchToFillMode
+            onTriggered: {
+                root.desktopView.displayMode = root.desktopView.stretchToFillMode
+                root.showToast(qsTr("Display mode: Stretch to Fill"), QDToast.Type.Success)
+            }
+        }
+
+        QDMenuSeparator { }
+
+        QDMenuItem {
+            text: qsTr("Show Mini Map")
+            iconText: FluentIconGlyph.mapPinGlyph
+            checkable: true
+            checked: root.miniMapEnabled
+            onTriggered: root.miniMapEnabledRequested(!root.miniMapEnabled)
+        }
+    }
+
     QDMenu {
         id: smartBoostMenu
         parent: root.parent

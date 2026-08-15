@@ -28,6 +28,7 @@ public:
 
     LCC_FUNCTION_DEC_BOOL(groupWindowVerticalScreen, GroupWindowVerticalScreen, true)
     LCC_FUNCTION_DEC_BOOL(remoteTabBarPinned, RemoteTabBarPinned, false)
+    LCC_FUNCTION_DEC_BOOL(remoteDesktopMiniMapVisible, RemoteDesktopMiniMapVisible, true)
 
     LCC_FUNCTION_DEC_INT(accessCodeRefreshInterval, AccessCodeRefreshInterval, 120)  // minutes: never=-1, 1, 30, 120(default), 360, 720, 1440
     LCC_FUNCTION_DEC_INT(darkTheme, DarkTheme, 1)  // 0=Light, 1=Dark, default=Dark

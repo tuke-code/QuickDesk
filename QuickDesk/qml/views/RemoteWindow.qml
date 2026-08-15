@@ -26,6 +26,7 @@ Window {
     property var closingConnections: ({})  // Guard against re-entrant closeConnection calls
     property bool emergencyStopActive: false
     readonly property bool tabBarPinned: tabBarConfig.remoteTabBarPinned
+    readonly property bool miniMapEnabled: tabBarConfig.remoteDesktopMiniMapVisible
     property bool tabBarExpanded: false
     readonly property bool tabBarPointerActive: tabBarHover.hovered || tabBarRevealHover.hovered
     readonly property bool tabBarShown: tabBarPinned || tabBarExpanded
@@ -403,6 +404,7 @@ Window {
         currentIndex: remoteWindow.currentTabIndex
 
         Repeater {
+            id: desktopRepeater
             model: connectionModel
 
             Item {
@@ -411,6 +413,7 @@ Window {
                 required property string deviceId
                 required property string name
                 required property string state
+                property alias remoteDesktopView: desktopView
 
                 // Detect self-connection: remote deviceId matches local deviceId
                 readonly property bool isSelfConnection: remoteWindow.localDeviceId !== "" && delegateItem.deviceId === remoteWindow.localDeviceId
@@ -424,6 +427,7 @@ Window {
                     active: delegateItem.index === remoteWindow.currentTabIndex
                     inputEnabled: !delegateItem.isSelfConnection  // Disable input for self-connection
                     suppressRemoteCursor: remoteWindow.tabBarPointerActive
+                    showMiniMap: remoteWindow.miniMapEnabled
 
                     onFilesDropped: function(urls) {
                         var devId = delegateItem.deviceId
@@ -575,6 +579,7 @@ Window {
                 ? connectionModel.deviceIdAt(currentTabIndex) 
                 : ""
             clientManager: remoteWindow.clientManager
+            miniMapEnabled: remoteWindow.miniMapEnabled
             supportsSendAttentionSequence: {
                 var devId = currentTabIndex >= 0 && currentTabIndex < connectionModel.count 
                     ? connectionModel.deviceIdAt(currentTabIndex) : ""
@@ -633,10 +638,10 @@ Window {
                 return devId ? remoteWindow.getPerformanceStats(devId) : null
             }
             desktopView: {
-                // Find the current desktop view
-                if (remoteWindow.currentTabIndex >= 0) {
-                    var stackItem = desktopStack.children[remoteWindow.currentTabIndex]
-                    return stackItem ? stackItem.children[0] : null
+                if (remoteWindow.currentTabIndex >= 0 &&
+                    remoteWindow.currentTabIndex < desktopRepeater.count) {
+                    var delegateItem = desktopRepeater.itemAt(remoteWindow.currentTabIndex)
+                    return delegateItem ? delegateItem.remoteDesktopView : null
                 }
                 return null
             }
@@ -675,6 +680,10 @@ Window {
             
             onToggleVideoStats: {
                 remoteWindow.showVideoStats = !remoteWindow.showVideoStats
+            }
+
+            onMiniMapEnabledRequested: function(enabled) {
+                tabBarConfig.remoteDesktopMiniMapVisible = enabled
             }
             
             onShowToast: function(message, toastType) {

@@ -2,6 +2,7 @@
 // Remote desktop video display component with input event support
 
 import QtQuick
+import QtQuick.Controls as Controls
 import QtMultimedia
 import QtQuick.Window
 import QuickDesk 1.0
@@ -30,7 +31,12 @@ Rectangle {
     // Set by an overlapping local control surface (for example, the tab bar).
     // While active, show the native cursor instead of the remote cursor.
     property bool suppressRemoteCursor: false
-    property alias fillMode: videoOutput.fillMode
+
+    readonly property int fitToScreenMode: 0
+    readonly property int originalSizeMode: 1
+    readonly property int stretchToFillMode: 2
+    property int displayMode: fitToScreenMode
+    property bool showMiniMap: true
     
     signal filesDropped(var urls)
     
@@ -89,11 +95,203 @@ Rectangle {
         }
     }
     
-    // Video output for GPU rendering
-    VideoOutput {
-        id: videoOutput
+    // The original-size mode uses a scrollable viewport. The other modes keep
+    // the video output exactly viewport-sized and rely on VideoOutput scaling.
+    Flickable {
+        id: desktopViewport
         anchors.fill: parent
-        fillMode: VideoOutput.PreserveAspectFit
+        clip: true
+        boundsBehavior: Flickable.StopAtBounds
+        contentWidth: root.displayMode === root.originalSizeMode
+                      ? Math.max(width, root.frameWidth) : width
+        contentHeight: root.displayMode === root.originalSizeMode
+                       ? Math.max(height, root.frameHeight) : height
+        interactive: false
+
+        VideoOutput {
+            id: videoOutput
+            width: root.displayMode === root.originalSizeMode
+                   ? root.frameWidth : desktopViewport.width
+            height: root.displayMode === root.originalSizeMode
+                    ? root.frameHeight : desktopViewport.height
+            x: root.displayMode === root.originalSizeMode
+               ? Math.max(0, (desktopViewport.width - width) / 2) : 0
+            y: root.displayMode === root.originalSizeMode
+               ? Math.max(0, (desktopViewport.height - height) / 2) : 0
+            fillMode: root.displayMode === root.stretchToFillMode
+                      ? VideoOutput.Stretch : VideoOutput.PreserveAspectFit
+
+            // Capture remote input inside the scrollable content so that the
+            // viewport's scrollbars remain usable in original-size mode.
+            MouseArea {
+                id: mouseArea
+                anchors.fill: parent
+                enabled: root.inputEnabled && root.hasVideo
+                hoverEnabled: true
+                acceptedButtons: Qt.AllButtons
+                cursorShape: (root.inputEnabled && root.hasVideo && frameProvider.hasCursor
+                          && !root.suppressRemoteCursor
+                          && !horizontalScrollBar.pressed
+                          && !verticalScrollBar.pressed) ? Qt.BlankCursor : Qt.ArrowCursor
+
+                property point lastPosition: Qt.point(0, 0)
+
+                function rootPoint(mouse) {
+                    return mouseArea.mapToItem(root, mouse.x, mouse.y)
+                }
+
+                onPositionChanged: function(mouse) {
+                    if (!root.clientManager) return;
+                    var point = rootPoint(mouse)
+                    var remote = root.mapToRemote(point.x, point.y);
+                    if (remote) {
+                        root.clientManager.sendMouseMove(root.deviceId, remote.x, remote.y);
+                        lastPosition = Qt.point(remote.x, remote.y);
+                    }
+                }
+
+                onPressed: function(mouse) {
+                    if (!root.clientManager) return;
+                    root.forceActiveFocus();
+                    var point = rootPoint(mouse)
+                    var remote = root.mapToRemote(point.x, point.y);
+                    if (remote) {
+                        root.clientManager.sendMousePress(
+                            root.deviceId, remote.x, remote.y, qtButtonToProtocol(mouse.button));
+                    }
+                }
+
+                onReleased: function(mouse) {
+                    if (!root.clientManager) return;
+                    var point = rootPoint(mouse)
+                    var remote = root.mapToRemote(point.x, point.y);
+                    if (remote) {
+                        root.clientManager.sendMouseRelease(
+                            root.deviceId, remote.x, remote.y, qtButtonToProtocol(mouse.button));
+                    }
+                }
+
+                onWheel: function(wheel) {
+                    if (!root.clientManager) return;
+                    var point = rootPoint(wheel)
+                    var remote = root.mapToRemote(point.x, point.y);
+                    if (remote) {
+                        root.clientManager.sendMouseWheel(
+                            root.deviceId, remote.x, remote.y,
+                            wheel.angleDelta.x, wheel.angleDelta.y);
+                    }
+                }
+
+                function qtButtonToProtocol(qtButton) {
+                    switch (qtButton) {
+                    case Qt.LeftButton: return 1;
+                    case Qt.RightButton: return 2;
+                    case Qt.MiddleButton: return 4;
+                    case Qt.BackButton: return 8;
+                    case Qt.ForwardButton: return 16;
+                    default: return 0;
+                    }
+                }
+            }
+        }
+
+        Controls.ScrollBar.horizontal: QDScrollBar {
+            id: horizontalScrollBar
+            z: 3
+            policy: root.displayMode === root.originalSizeMode
+                    ? Controls.ScrollBar.AlwaysOn : Controls.ScrollBar.AlwaysOff
+            autoHide: false
+            implicitHeight: 20
+            padding: 4
+            contentItem: Rectangle {
+                implicitWidth: 100
+                implicitHeight: 12
+                radius: height / 2
+                color: horizontalScrollBar.pressed ? Theme.primary
+                       : horizontalScrollBar.hovered ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.6)
+                       : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.4)
+            }
+        }
+        Controls.ScrollBar.vertical: QDScrollBar {
+            id: verticalScrollBar
+            z: 3
+            policy: root.displayMode === root.originalSizeMode
+                    ? Controls.ScrollBar.AlwaysOn : Controls.ScrollBar.AlwaysOff
+            autoHide: false
+            implicitWidth: 20
+            padding: 4
+            contentItem: Rectangle {
+                implicitWidth: 12
+                implicitHeight: 100
+                radius: width / 2
+                color: verticalScrollBar.pressed ? Theme.primary
+                       : verticalScrollBar.hovered ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.6)
+                       : Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.4)
+            }
+        }
+    }
+
+    // A full-desktop overview for navigating an oversized original-size view.
+    Rectangle {
+        id: miniMap
+        readonly property real aspectRatio: root.frameWidth > 0 && root.frameHeight > 0
+                                            ? root.frameWidth / root.frameHeight : 16 / 9
+        readonly property real viewportWidthRatio: desktopViewport.width / desktopViewport.contentWidth
+        readonly property real viewportHeightRatio: desktopViewport.height / desktopViewport.contentHeight
+        width: Math.min(180, root.width * 0.22, root.height * 0.22 * aspectRatio)
+        height: width / aspectRatio
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: Theme.spacingMedium
+        anchors.bottomMargin: Theme.spacingMedium
+        visible: root.showMiniMap && root.displayMode === root.originalSizeMode && root.hasVideo
+        z: 20
+        color: "#d91a1a1a"
+        border.color: "#99ffffff"
+        border.width: 1
+        radius: Theme.radiusSmall
+        clip: true
+
+        ShaderEffectSource {
+            id: miniMapPreview
+            anchors.fill: parent
+            sourceItem: videoOutput
+            live: true
+            hideSource: false
+        }
+
+        Rectangle {
+            id: viewportIndicator
+            x: Math.max(0, Math.min(miniMap.width - width,
+                                     desktopViewport.contentX / desktopViewport.contentWidth * miniMap.width))
+            y: Math.max(0, Math.min(miniMap.height - height,
+                                     desktopViewport.contentY / desktopViewport.contentHeight * miniMap.height))
+            width: Math.min(miniMap.width, miniMap.viewportWidthRatio * miniMap.width)
+            height: Math.min(miniMap.height, miniMap.viewportHeightRatio * miniMap.height)
+            color: "#3373b8ff"
+            border.color: "#e6ffffff"
+            border.width: 1
+        }
+
+        MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.OpenHandCursor
+            acceptedButtons: Qt.LeftButton
+
+            function moveViewport(mouse) {
+                desktopViewport.contentX = Math.max(0, Math.min(
+                    desktopViewport.contentWidth - desktopViewport.width,
+                    mouse.x / miniMap.width * desktopViewport.contentWidth - desktopViewport.width / 2))
+                desktopViewport.contentY = Math.max(0, Math.min(
+                    desktopViewport.contentHeight - desktopViewport.height,
+                    mouse.y / miniMap.height * desktopViewport.contentHeight - desktopViewport.height / 2))
+            }
+
+            onPressed: function(mouse) { moveViewport(mouse) }
+            onPositionChanged: function(mouse) {
+                if (pressed) moveViewport(mouse)
+            }
+        }
     }
     
     // Convert local mouse coordinates to remote desktop DIP coordinates.
@@ -106,16 +304,17 @@ Rectangle {
             return null;
         }
 
-        // VideoOutput.contentRect gives the exact rectangle where the video
-        // is actually rendered (excludes black bars from PreserveAspectFit)
+        // Convert through the viewport because original-size mode can be
+        // scrolled. contentRect remains local to VideoOutput.
+        var videoPoint = root.mapToItem(videoOutput, localX, localY);
         var rect = videoOutput.contentRect;
         if (rect.width <= 0 || rect.height <= 0) {
             return null;
         }
 
         // Calculate position relative to the video content area
-        var relativeX = localX - rect.x;
-        var relativeY = localY - rect.y;
+        var relativeX = videoPoint.x - rect.x;
+        var relativeY = videoPoint.y - rect.y;
 
         // Check if the mouse is within the video area (not on black bars)
         if (relativeX < 0 || relativeX > rect.width ||
@@ -154,82 +353,16 @@ Rectangle {
         property int cursorVersion: 0
         
         // Position follows mouse, offset by hotspot
-        x: mouseArea.mouseX - frameProvider.cursorHotspot.x
-        y: mouseArea.mouseY - frameProvider.cursorHotspot.y
+        x: mouseArea.mapToItem(root, mouseArea.mouseX, mouseArea.mouseY).x
+           - frameProvider.cursorHotspot.x
+        y: mouseArea.mapToItem(root, mouseArea.mouseX, mouseArea.mouseY).y
+           - frameProvider.cursorHotspot.y
         
         // Update when cursor changes
         Connections {
             target: frameProvider
             function onCursorChanged() {
                 remoteCursor.cursorVersion++
-            }
-        }
-    }
-    
-    // Mouse event capture
-    MouseArea {
-        id: mouseArea
-        anchors.fill: parent
-        enabled: root.inputEnabled && root.hasVideo
-        hoverEnabled: true
-        acceptedButtons: Qt.AllButtons
-        cursorShape: (root.inputEnabled && root.hasVideo && frameProvider.hasCursor
-                  && !root.suppressRemoteCursor) ? Qt.BlankCursor : Qt.ArrowCursor
-        
-        property point lastPosition: Qt.point(0, 0)
-        
-        onPositionChanged: function(mouse) {
-            if (!root.clientManager) return;
-            var remote = root.mapToRemote(mouse.x, mouse.y);
-            if (remote) {
-                root.clientManager.sendMouseMove(root.deviceId, remote.x, remote.y);
-                lastPosition = Qt.point(remote.x, remote.y);
-            }
-        }
-        
-        onPressed: function(mouse) {
-            if (!root.clientManager) return;
-            root.forceActiveFocus();  // Take keyboard focus
-            var remote = root.mapToRemote(mouse.x, mouse.y);
-            if (remote) {
-                var button = qtButtonToProtocol(mouse.button);
-                root.clientManager.sendMousePress(root.deviceId, remote.x, remote.y, button);
-            }
-        }
-        
-        onReleased: function(mouse) {
-            if (!root.clientManager) return;
-            var remote = root.mapToRemote(mouse.x, mouse.y);
-            if (remote) {
-                var button = qtButtonToProtocol(mouse.button);
-                root.clientManager.sendMouseRelease(root.deviceId, remote.x, remote.y, button);
-            }
-        }
-        
-        onWheel: function(wheel) {
-            if (!root.clientManager) return;
-            var remote = root.mapToRemote(wheel.x, wheel.y);
-            if (remote) {
-                root.clientManager.sendMouseWheel(
-                    root.deviceId, remote.x, remote.y,
-                    wheel.angleDelta.x, wheel.angleDelta.y);
-            }
-        }
-        
-        onDoubleClicked: function(mouse) {
-            // Double click is handled as two rapid press/release events
-            // by the individual press/release handlers
-        }
-        
-        // Convert Qt button to protocol button value
-        function qtButtonToProtocol(qtButton) {
-            switch (qtButton) {
-                case Qt.LeftButton: return 1;
-                case Qt.RightButton: return 2;
-                case Qt.MiddleButton: return 4;
-                case Qt.BackButton: return 8;
-                case Qt.ForwardButton: return 16;
-                default: return 0;
             }
         }
     }
