@@ -97,6 +97,7 @@ public:
     Q_INVOKABLE void sendMouseWheel(const QString& deviceId, int x, int y, int deltaX, int deltaY);
     Q_INVOKABLE void sendKeyPress(const QString& deviceId, int nativeScanCode, int lockStates);
     Q_INVOKABLE void sendKeyRelease(const QString& deviceId, int nativeScanCode, int lockStates);
+    Q_INVOKABLE void releaseAllInput(const QString& deviceId);
 
     // Clipboard
     Q_INVOKABLE void syncClipboard(const QString& deviceId, const QString& text);

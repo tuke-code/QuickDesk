@@ -259,6 +259,11 @@ void ClientManager::sendKeyRelease(const QString& deviceId, int nativeScanCode, 
     sendKeyboardEvent(deviceId, "release", nativeScanCode, lockStates);
 }
 
+void ClientManager::releaseAllInput(const QString& deviceId)
+{
+    sendAction(deviceId, "releaseAllInputAction");
+}
+
 void ClientManager::syncClipboard(const QString& deviceId, const QString& text)
 {
     if (!m_messaging || !m_messaging->isReady()) {

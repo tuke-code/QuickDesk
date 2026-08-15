@@ -3,6 +3,7 @@
 
 import QtQuick
 import QtMultimedia
+import QtQuick.Window
 import QuickDesk 1.0
 
 /**
@@ -52,6 +53,41 @@ Rectangle {
     
     color: "#1a1a1a"  // Dark background
     focus: inputEnabled  // Enable keyboard focus when input is enabled
+
+    // System shortcuts and focus changes can prevent QML from delivering the
+    // matching key-up event. Tell the host to clear its authoritative state.
+    function releaseRemoteInput() {
+        if (clientManager && deviceId.length > 0) {
+            clientManager.releaseAllInput(deviceId)
+        }
+    }
+
+    onActiveFocusChanged: {
+        if (!activeFocus) {
+            releaseRemoteInput()
+        }
+    }
+
+    onActiveChanged: {
+        if (!active) {
+            releaseRemoteInput()
+        }
+    }
+
+    onVisibleChanged: {
+        if (!visible) {
+            releaseRemoteInput()
+        }
+    }
+
+    Connections {
+        target: root.Window.window
+        function onActiveChanged() {
+            if (target && !target.active) {
+                root.releaseRemoteInput()
+            }
+        }
+    }
     
     // Video output for GPU rendering
     VideoOutput {
