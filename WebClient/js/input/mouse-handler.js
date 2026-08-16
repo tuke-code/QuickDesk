@@ -11,10 +11,12 @@ export class MouseHandler {
     /**
      * @param {HTMLVideoElement} videoElement - 视频元素
      * @param {DataChannelHandler} dataChannelHandler - DataChannel 处理器
+     * @param {HTMLElement} focusElement - Element receiving keyboard input
      */
-    constructor(videoElement, dataChannelHandler) {
+    constructor(videoElement, dataChannelHandler, focusElement = videoElement) {
         this.videoElement = videoElement;
         this.dcHandler = dataChannelHandler;
+        this.focusElement = focusElement;
         this.remoteWidth = 0;
         this.remoteHeight = 0;
         this._enabled = false;
@@ -162,6 +164,14 @@ export class MouseHandler {
      * @private
      */
     _onMouseButton(event, isDown) {
+        if (isDown && this.focusElement && document.activeElement !== this.focusElement) {
+            try {
+                this.focusElement.focus({ preventScroll: true });
+            } catch (_) {
+                this.focusElement.focus();
+            }
+        }
+
         event.preventDefault();
         const coords = this._mapCoordinates(event);
         if (!coords) return;

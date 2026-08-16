@@ -586,7 +586,7 @@ class RemoteDesktopApp {
             this.touchHandler.setRemoteResolution(w, h);
             this.touchHandler.enable();
         } else {
-            this.mouseHandler = new MouseHandler(video, this.dcHandler);
+            this.mouseHandler = new MouseHandler(video, this.dcHandler, videoContainer || video);
             this.mouseHandler.setRemoteResolution(w, h);
             this.mouseHandler.enable();
 
