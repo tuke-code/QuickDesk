@@ -443,8 +443,19 @@ class _RemotePageState extends State<RemotePage> {
 
   void _handlePointerUp(PointerUpEvent e) {
     _pointers.remove(e.pointer);
-    _touch.onPointerUp(e, _pointers.length);
+    _touch.onPointerUp(
+      e,
+      _pointers.length,
+      remainingPosition:
+          _pointers.length == 1 ? _pointers.values.first : null,
+    );
     _pointerCount = _pointers.length;
+  }
+
+  void _cancelTouchInput() {
+    _pointers.clear();
+    _pointerCount = 0;
+    _touch.onPointerCancel(0);
   }
 
   // ==================== UI ====================
@@ -457,6 +468,7 @@ class _RemotePageState extends State<RemotePage> {
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
+        _cancelTouchInput();
         await _session.disconnect();
         if (context.mounted) Navigator.of(context).pop();
       },
@@ -478,6 +490,12 @@ class _RemotePageState extends State<RemotePage> {
                         onPointerUp: _handlePointerUp,
                         onPointerCancel: (e) {
                           _pointers.remove(e.pointer);
+                          _touch.onPointerCancel(
+                            _pointers.length,
+                            remainingPosition: _pointers.length == 1
+                                ? _pointers.values.first
+                                : null,
+                          );
                           _pointerCount = _pointers.length;
                         },
                         behavior: HitTestBehavior.opaque,
@@ -622,6 +640,7 @@ class _RemotePageState extends State<RemotePage> {
                     onUpload: _pickAndUpload,
                     onDownload: _startDownload,
                     onDisconnect: () async {
+                      _cancelTouchInput();
                       await _session.disconnect();
                       if (context.mounted) Navigator.of(context).pop();
                     },

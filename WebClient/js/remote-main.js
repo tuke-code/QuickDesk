@@ -1129,10 +1129,11 @@ class RemoteDesktopApp {
     }
 
     _disconnect() {
+        // Release held input while the event data channel is still writable.
+        this._cleanupInputHandlers();
         if (this.session) {
             this.session.disconnect();
         }
-        this._cleanupInputHandlers();
         this._setConnectionState('failed', t('status.disconnected'));
         setTimeout(() => {
             if (this._isMobile) {

@@ -3,7 +3,8 @@
 /// 对齐 RustDesk 手机「鼠标模式」+ WebClient：
 ///   单指拖动     → 始终移动光标（放大时自动平移画布跟随光标）
 ///   单击         → 左键点击
-///   双击         → 左键按下保持（再点松开），便于拖窗口
+///   双击         → 标准左键双击
+///   双击后拖动   → 按住左键拖拽，抬手释放
 ///   长按         → 右键
 ///   双指捏合     → 绕捏合中心缩放（1x–5x），不跳动
 ///   双指滑动     → 未放大时滚轮
@@ -17,9 +18,9 @@ import '../core/geometry.dart';
 import '../protocol/datachannel_handler.dart';
 import '../protocol/proto/protobuf_messages.dart';
 
-const _tapTimeout = Duration(milliseconds: 200);
 const _longPressTimeout = Duration(milliseconds: 500);
 const _doubleTapGap = Duration(milliseconds: 300);
+const _doubleTapDistance = 48.0;
 const _moveThreshold = 8.0;
 const _cursorSpeed = 2.5;
 const _minScale = 1.0;
@@ -48,12 +49,13 @@ class TouchInputController {
   void Function()? onCursorMoved;
   void Function()? onTransformChanged;
 
-  DateTime _touchStartTime = DateTime.now();
   Offset _touchStartPos = Offset.zero;
   Offset _lastSinglePos = Offset.zero;
   DateTime? _lastTapTime;
+  Offset? _lastTapPos;
   Timer? _longPressTimer;
-  Timer? _pendingClickTimer;
+  bool _secondTap = false;
+  bool _dragging = false;
   bool _moved = false;
   int _activeTouches = 0;
   Offset _lastTwoFingerCenter = Offset.zero;
@@ -111,16 +113,25 @@ class TouchInputController {
   void onPointerDown(PointerDownEvent event, int pointerCount) {
     _activeTouches = pointerCount;
     if (pointerCount == 1) {
-      _touchStartTime = DateTime.now();
       _touchStartPos = event.position;
       _lastSinglePos = event.position;
       _moved = false;
       _pinchActive = false;
-      if (!leftButtonHeld) {
-        _startLongPress();
+      _secondTap = _isSecondTap(event.position);
+      if (!_secondTap) {
+        _lastTapTime = null;
+        _lastTapPos = null;
+        if (!leftButtonHeld) _startLongPress();
       }
     } else if (pointerCount == 2) {
       _cancelLongPress();
+      if (_dragging) {
+        _releaseLeftButton();
+        _dragging = false;
+      }
+      _secondTap = false;
+      _lastTapTime = null;
+      _lastTapPos = null;
       _moved = true;
       _pinchActive = false;
     }
@@ -153,6 +164,11 @@ class TouchInputController {
       if (!_moved) return;
 
       // RustDesk 鼠标模式：单指始终移动光标；放大时画布自动跟随
+      // A second tap followed by movement is the common mobile drag gesture.
+      if (_secondTap && !_dragging) {
+        _pressLeftButton();
+        _dragging = true;
+      }
       _moveCursor(dx * _cursorSpeed, dy * _cursorSpeed);
       if (isZoomed) {
         _autoPanToFollow();
@@ -202,36 +218,42 @@ class TouchInputController {
     onTransformChanged?.call();
   }
 
-  void onPointerUp(PointerUpEvent event, int remainingPointers) {
+  void onPointerUp(
+    PointerUpEvent event,
+    int remainingPointers, {
+    Offset? remainingPosition,
+  }) {
     _cancelLongPress();
 
     if (_activeTouches == 1 && remainingPointers == 0) {
-      final elapsed = DateTime.now().difference(_touchStartTime);
-      if (!_moved && elapsed < _tapTimeout) {
-        final now = DateTime.now();
-        if (leftButtonHeld) {
-          _pendingClickTimer?.cancel();
-          _pendingClickTimer = null;
-          _releaseLeftButton();
+      if (_dragging) {
+        _releaseLeftButton();
+        _dragging = false;
+        _secondTap = false;
+      } else if (!_moved) {
+        // Emit every tap immediately so both clients produce the same
+        // standard two-click sequence for a double-click.
+        _sendClick(MouseButton.left);
+        if (_secondTap) {
           _lastTapTime = null;
-        } else if (_lastTapTime != null &&
-            now.difference(_lastTapTime!) < _doubleTapGap) {
-          _pendingClickTimer?.cancel();
-          _pendingClickTimer = null;
-          _pressLeftButton();
-          _lastTapTime = null;
+          _lastTapPos = null;
         } else {
-          _lastTapTime = now;
-          _pendingClickTimer?.cancel();
-          _pendingClickTimer = Timer(_doubleTapGap, () {
-            _pendingClickTimer = null;
-            _lastTapTime = null;
-            if (!leftButtonHeld) {
-              _sendClick(MouseButton.left);
-            }
-          });
+          _lastTapTime = DateTime.now();
+          _lastTapPos = _touchStartPos;
         }
+        _secondTap = false;
       }
+    }
+
+    if (_activeTouches > 1 &&
+        remainingPointers == 1 &&
+        remainingPosition != null) {
+      _touchStartPos = remainingPosition;
+      _lastSinglePos = remainingPosition;
+      _moved = false;
+      _secondTap = false;
+      _lastTapTime = null;
+      _lastTapPos = null;
     }
 
     if (remainingPointers == 0) {
@@ -239,6 +261,34 @@ class TouchInputController {
       _pinchStartDist = 0;
     }
     _activeTouches = remainingPointers;
+  }
+
+  void onPointerCancel(
+    int remainingPointers, {
+    Offset? remainingPosition,
+  }) {
+    _cancelLongPress();
+    if (_dragging) _releaseLeftButton();
+    _dragging = false;
+    _secondTap = false;
+    _lastTapTime = null;
+    _lastTapPos = null;
+    if (remainingPointers == 1 && remainingPosition != null) {
+      _touchStartPos = remainingPosition;
+      _lastSinglePos = remainingPosition;
+    }
+    _moved = false;
+    _pinchActive = false;
+    _pinchStartDist = 0;
+    _activeTouches = remainingPointers;
+  }
+
+  bool _isSecondTap(Offset position) {
+    if (_lastTapTime == null || _lastTapPos == null ||
+        DateTime.now().difference(_lastTapTime!) >= _doubleTapGap) {
+      return false;
+    }
+    return (position - _lastTapPos!).distance <= _doubleTapDistance;
   }
 
   // ==================== 输入注入 ====================
@@ -382,8 +432,6 @@ class TouchInputController {
 
   void dispose() {
     _cancelLongPress();
-    _pendingClickTimer?.cancel();
-    _pendingClickTimer = null;
     if (leftButtonHeld) {
       _releaseLeftButton();
     }

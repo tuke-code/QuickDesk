@@ -7,21 +7,22 @@
  *    单指拖动  → 移动鼠标光标（触控板模式）
  *    单击      → 左键点击
  *    双击      → 双击
+ *    双击后拖动 → 按住左键拖拽
  *    长按(500ms) → 右键点击
  *    双指滑动  → 滚轮
  *    双指捏合  → 缩放画面
  *
  *  放大状态（scale > 1）：
- *    单指拖动  → 平移画面（浏览放大区域）
+ *    单指拖动  → 移动光标，画面自动跟随
  *    单击/双击/长按 → 同上（在当前光标位置操作）
  *    双指捏合  → 继续缩放
  */
 
 import { MouseButton } from '../protocol/protobuf-messages.js';
 
-const TAP_TIMEOUT = 200;
 const LONG_PRESS_TIMEOUT = 500;
 const DOUBLE_TAP_GAP = 300;
+const DOUBLE_TAP_DISTANCE = 48;
 const MOVE_THRESHOLD = 8;
 const CURSOR_SPEED = 2.5;
 
@@ -39,10 +40,12 @@ export class TouchHandler {
         this._cursorX = 0;
         this._cursorY = 0;
 
-        this._touchStartTime = 0;
         this._touchStartPos = null;
         this._lastSinglePos = null;
         this._lastTapTime = 0;
+        this._lastTapPos = null;
+        this._secondTap = false;
+        this._dragging = false;
         this._longPressTimer = null;
         this._moved = false;
         this._activeTouches = 0;
@@ -85,7 +88,7 @@ export class TouchHandler {
         h.touchstart = (e) => this._onTouchStart(e);
         h.touchmove = (e) => this._onTouchMove(e);
         h.touchend = (e) => this._onTouchEnd(e);
-        h.touchcancel = (e) => this._onTouchEnd(e);
+        h.touchcancel = (e) => this._onTouchCancel(e);
 
         const opts = { passive: false };
         this.target.addEventListener('touchstart', h.touchstart, opts);
@@ -102,7 +105,7 @@ export class TouchHandler {
         this.target.removeEventListener('touchmove', h.touchmove);
         this.target.removeEventListener('touchend', h.touchend);
         this.target.removeEventListener('touchcancel', h.touchcancel);
-        this._cancelLongPress();
+        this._cancelActiveGesture();
         this._removeCursorElement();
     }
 
@@ -119,13 +122,24 @@ export class TouchHandler {
 
         if (e.touches.length === 1) {
             const t = e.touches[0];
-            this._touchStartTime = Date.now();
             this._touchStartPos = { x: t.clientX, y: t.clientY };
             this._lastSinglePos = { x: t.clientX, y: t.clientY };
             this._moved = false;
-            this._startLongPress();
+            this._secondTap = this._isSecondTap(t);
+            if (!this._secondTap) {
+                this._lastTapTime = 0;
+                this._lastTapPos = null;
+                this._startLongPress();
+            }
         } else if (e.touches.length === 2) {
             this._cancelLongPress();
+            if (this._dragging) {
+                this._sendButton(MouseButton.BUTTON_LEFT, false);
+                this._dragging = false;
+            }
+            this._secondTap = false;
+            this._lastTapTime = 0;
+            this._lastTapPos = null;
             this._moved = true;
             const t0 = e.touches[0], t1 = e.touches[1];
             this._lastTwoFingerX = (t0.clientX + t1.clientX) / 2;
@@ -146,13 +160,22 @@ export class TouchHandler {
             const dy = t.clientY - this._lastSinglePos.y;
             this._lastSinglePos = { x: t.clientX, y: t.clientY };
 
-            if (Math.abs(t.clientX - this._touchStartPos.x) > MOVE_THRESHOLD ||
-                Math.abs(t.clientY - this._touchStartPos.y) > MOVE_THRESHOLD) {
+            if (Math.hypot(
+                t.clientX - this._touchStartPos.x,
+                t.clientY - this._touchStartPos.y,
+            ) > MOVE_THRESHOLD) {
                 this._moved = true;
                 this._cancelLongPress();
             }
 
             if (this._moved) {
+                // A second tap followed by movement is a left-button drag.
+                // The first tap already produced the first click, so this
+                // preserves the platform-standard double-click sequence.
+                if (this._secondTap && !this._dragging) {
+                    this._sendButton(MouseButton.BUTTON_LEFT, true);
+                    this._dragging = true;
+                }
                 this._moveCursor(dx * CURSOR_SPEED, dy * CURSOR_SPEED);
                 if (this.isZoomed) {
                     this._autoPanToFollow();
@@ -200,18 +223,32 @@ export class TouchHandler {
         this._cancelLongPress();
 
         if (this._activeTouches === 1 && e.touches.length === 0) {
-            const elapsed = Date.now() - this._touchStartTime;
-
-            if (!this._moved && elapsed < TAP_TIMEOUT) {
-                const now = Date.now();
-                if (now - this._lastTapTime < DOUBLE_TAP_GAP) {
-                    this._sendDoubleClick();
+            if (this._dragging) {
+                this._sendButton(MouseButton.BUTTON_LEFT, false);
+                this._dragging = false;
+                this._secondTap = false;
+            } else if (!this._moved) {
+                // Send each click immediately. The host receives two normal
+                // left clicks for a double-click instead of a platform-
+                // specific button latch sequence.
+                this._sendClick(MouseButton.BUTTON_LEFT);
+                if (this._secondTap) {
                     this._lastTapTime = 0;
+                    this._lastTapPos = null;
                 } else {
-                    this._lastTapTime = now;
-                    this._sendClick(MouseButton.BUTTON_LEFT);
+                    this._lastTapTime = Date.now();
+                    this._lastTapPos = { ...this._touchStartPos };
                 }
+                this._secondTap = false;
             }
+        } else if (this._activeTouches > 1 && e.touches.length === 1) {
+            const t = e.touches[0];
+            this._touchStartPos = { x: t.clientX, y: t.clientY };
+            this._lastSinglePos = { x: t.clientX, y: t.clientY };
+            this._moved = false;
+            this._secondTap = false;
+            this._lastTapTime = 0;
+            this._lastTapPos = null;
         }
 
         if (e.touches.length === 0) {
@@ -219,6 +256,34 @@ export class TouchHandler {
         } else {
             this._activeTouches = e.touches.length;
         }
+    }
+
+    _onTouchCancel(e) {
+        e.preventDefault();
+        this._cancelActiveGesture();
+    }
+
+    _isSecondTap(touch) {
+        if (!this._lastTapTime || !this._lastTapPos ||
+            Date.now() - this._lastTapTime >= DOUBLE_TAP_GAP) {
+            return false;
+        }
+        const dx = touch.clientX - this._lastTapPos.x;
+        const dy = touch.clientY - this._lastTapPos.y;
+        return Math.hypot(dx, dy) <= DOUBLE_TAP_DISTANCE;
+    }
+
+    _cancelActiveGesture() {
+        this._cancelLongPress();
+        if (this._dragging) {
+            this._sendButton(MouseButton.BUTTON_LEFT, false);
+        }
+        this._dragging = false;
+        this._secondTap = false;
+        this._lastTapTime = 0;
+        this._lastTapPos = null;
+        this._moved = false;
+        this._activeTouches = 0;
     }
 
     // ==================== Cursor & input ====================
@@ -241,9 +306,13 @@ export class TouchHandler {
         this.dcHandler.sendMouseEvent({ x, y, button, buttonDown: false });
     }
 
-    _sendDoubleClick() {
-        this._sendClick(MouseButton.BUTTON_LEFT);
-        this._sendClick(MouseButton.BUTTON_LEFT);
+    _sendButton(button, buttonDown) {
+        this.dcHandler.sendMouseEvent({
+            x: Math.round(this._cursorX),
+            y: Math.round(this._cursorY),
+            button,
+            buttonDown,
+        });
     }
 
     _sendScroll(dx, dy) {
