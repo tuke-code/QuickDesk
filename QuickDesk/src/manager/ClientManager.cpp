@@ -219,7 +219,7 @@ void ClientManager::sendHello(const QString& deviceId,
     // HostManager::sendHello — the Chromium client echoes the same
     // integer in helloResponse; a mismatch means Qt + nmh drifted and
     // must be upgraded together).
-    message["protocol_version"] = 2;
+    message["protocol_version"] = 3;
     if (!deviceId.isEmpty()) {
         message["deviceId"] = deviceId;
     }

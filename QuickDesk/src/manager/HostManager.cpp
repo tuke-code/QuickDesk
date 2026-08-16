@@ -10,10 +10,8 @@
 namespace quickdesk {
 
 namespace {
-// §2.25 native-messaging protocol version. Bumped to 2 for the
-// signaling-server v1 refactor (host now ships device_secret + uses
-// first-frame auth for signaling WS).
-constexpr int kNativeMessagingProtocolVersion = 2;
+// Bumped to 3 for Host-owned auto-lock-on-session-end settings.
+constexpr int kNativeMessagingProtocolVersion = 3;
 }
 
 HostManager::HostManager(QObject* parent)
@@ -51,11 +49,14 @@ void HostManager::setMessaging(NativeMessaging* messaging)
         m_signalingRetryCount = 0;
         m_signalingNextRetryIn = 0;
         m_signalingError.clear();
+        m_supportsAutoLockOnSessionEnd = false;
+        m_autoLockOnSessionEnd = false;
         
         emit deviceIdChanged();
         emit accessCodeChanged();
         emit connectionStatusChanged();
         emit signalingStateChanged();
+        emit autoLockOnSessionEndChanged();
         if (hadClients) {
             emit clientCountChanged();
             emit clientListChanged();
@@ -296,6 +297,8 @@ void HostManager::onMessageReceived(const QJsonObject& message)
         handleSkillMessage(message);
     } else if (type == "privacyScreenStateChanged") {
         handlePrivacyScreenStateChanged(message);
+    } else if (type == "setAutoLockOnSessionEndResult") {
+        handleSetAutoLockOnSessionEndResult(message);
     } else {
         LOG_WARN("Unknown message type from host: {}", type.toStdString());
     }
@@ -350,6 +353,17 @@ void HostManager::handleHelloResponse(const QJsonObject& message)
     }
     if (deviceIdChangedFlag) emit deviceIdChanged();
     if (accessCodeChangedFlag) emit accessCodeChanged();
+
+    const bool supportsAutoLock =
+        message.value("supportsAutoLockOnSessionEnd").toBool(false);
+    const bool autoLock = supportsAutoLock &&
+        message.value("autoLockOnSessionEnd").toBool(false);
+    if (supportsAutoLock != m_supportsAutoLockOnSessionEnd ||
+        autoLock != m_autoLockOnSessionEnd) {
+        m_supportsAutoLockOnSessionEnd = supportsAutoLock;
+        m_autoLockOnSessionEnd = autoLock;
+        emit autoLockOnSessionEndChanged();
+    }
 
     LOG_INFO("Host hello response, version: {}, protocol_version: {}",
              version.toStdString(), hostProtocolVersion);
@@ -640,11 +654,52 @@ void HostManager::togglePrivacyScreen(bool enabled)
     m_messaging->sendMessage(message);
 }
 
+void HostManager::setAutoLockOnSessionEnd(bool enabled)
+{
+    if (!m_messaging || !m_messaging->isReady() || !m_supportsAutoLockOnSessionEnd) {
+        emit errorOccurred("AUTO_LOCK_UNSUPPORTED",
+                           "Automatic lock on session end is not supported by this host");
+        return;
+    }
+
+    QJsonObject message;
+    message["type"] = "setAutoLockOnSessionEnd";
+    message["enabled"] = enabled;
+    m_messaging->sendMessage(message);
+}
+
 void HostManager::handlePrivacyScreenStateChanged(const QJsonObject& message)
 {
     bool enabled = message["enabled"].toBool();
     LOG_INFO("Privacy screen state changed: {}", enabled ? "ON" : "OFF");
     emit privacyScreenStateChanged(enabled);
+}
+
+bool HostManager::supportsAutoLockOnSessionEnd() const
+{
+    return m_supportsAutoLockOnSessionEnd;
+}
+
+bool HostManager::autoLockOnSessionEnd() const
+{
+    return m_autoLockOnSessionEnd;
+}
+
+void HostManager::handleSetAutoLockOnSessionEndResult(const QJsonObject& message)
+{
+    if (!message.value("success").toBool()) {
+        const QString error = message.value("error").toString();
+        LOG_WARN("Failed to update auto-lock on session end: {}", error.toStdString());
+        emit errorOccurred("AUTO_LOCK_UPDATE_FAILED", error);
+        emit autoLockOnSessionEndChanged();
+        return;
+    }
+
+    const bool enabled = message.value("enabled").toBool(false);
+    if (m_autoLockOnSessionEnd != enabled) {
+        m_autoLockOnSessionEnd = enabled;
+        emit autoLockOnSessionEndChanged();
+    }
 }
 
 void HostManager::handleSkillMessage(const QJsonObject& message)

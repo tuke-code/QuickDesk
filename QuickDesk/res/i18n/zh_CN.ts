@@ -1504,6 +1504,16 @@ Frame rate: %3 fps</source>
         <translation>远程客户端连接时自动开启隐私屏</translation>
     </message>
     <message>
+        <location filename="../../qml/pages/SettingsPage.qml" line="251"/>
+        <source>Lock device when remote sessions end</source>
+        <translation>远程会话结束时锁定设备</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/SettingsPage.qml" line="256"/>
+        <source>Lock this device when the last remote session ends, including unexpected disconnections</source>
+        <translation>最后一个远程会话结束时锁定此设备，包括意外断线</translation>
+    </message>
+    <message>
         <location filename="../../qml/pages/SettingsPage.qml" line="247"/>
         <source>Network</source>
         <translation>网络</translation>

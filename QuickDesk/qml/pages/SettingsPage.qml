@@ -237,6 +237,47 @@ Item {
                                 }
                             }
                         }
+
+                        // Host-owned privacy policy. It is deliberately not
+                        // stored in the Qt profile: the Host must keep it
+                        // effective after this UI or a remote client exits.
+                        Row {
+                            visible: root.mainController && root.mainController.hostManager
+                                     && root.mainController.hostManager.supportsAutoLockOnSessionEnd
+                            width: parent.width
+                            spacing: Theme.spacingMedium
+
+                            Column {
+                                width: parent.width - autoLockSwitch.width - parent.spacing
+                                spacing: Theme.spacingXSmall
+                                anchors.verticalCenter: parent.verticalCenter
+
+                                Text {
+                                    text: qsTr("Lock device when remote sessions end")
+                                    font.pixelSize: Theme.fontSizeMedium
+                                    color: Theme.text
+                                }
+                                Text {
+                                    text: qsTr("Lock this device when the last remote session ends, including unexpected disconnections")
+                                    font.pixelSize: Theme.fontSizeSmall
+                                    color: Theme.textSecondary
+                                    wrapMode: Text.WordWrap
+                                    width: parent.width
+                                }
+                            }
+
+                            QDSwitch {
+                                id: autoLockSwitch
+                                anchors.verticalCenter: parent.verticalCenter
+                                checked: root.mainController && root.mainController.hostManager
+                                         ? root.mainController.hostManager.autoLockOnSessionEnd : false
+                                onToggled: {
+                                    if (root.mainController && root.mainController.hostManager) {
+                                        root.mainController.hostManager.setAutoLockOnSessionEnd(checked)
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 

@@ -43,6 +43,8 @@ class HostManager : public QObject {
     Q_PROPERTY(int signalingRetryCount READ signalingRetryCount NOTIFY signalingStateChanged)
     Q_PROPERTY(int signalingNextRetryIn READ signalingNextRetryIn NOTIFY signalingStateChanged)
     Q_PROPERTY(QString signalingError READ signalingError NOTIFY signalingStateChanged)
+    Q_PROPERTY(bool supportsAutoLockOnSessionEnd READ supportsAutoLockOnSessionEnd NOTIFY autoLockOnSessionEndChanged)
+    Q_PROPERTY(bool autoLockOnSessionEnd READ autoLockOnSessionEnd NOTIFY autoLockOnSessionEndChanged)
 
 public:
     explicit HostManager(QObject* parent = nullptr);
@@ -73,6 +75,7 @@ public:
 
     // Privacy screen
     Q_INVOKABLE void togglePrivacyScreen(bool enabled);
+    Q_INVOKABLE void setAutoLockOnSessionEnd(bool enabled);
 
     // State getters
     QString deviceId() const;
@@ -99,6 +102,8 @@ public:
     int signalingRetryCount() const;
     int signalingNextRetryIn() const;
     QString signalingError() const;
+    bool supportsAutoLockOnSessionEnd() const;
+    bool autoLockOnSessionEnd() const;
 
 signals:
     void deviceIdChanged();
@@ -130,6 +135,7 @@ signals:
 
     // Privacy screen state changed (e.g. Ctrl+Alt+P exit or client disconnect)
     void privacyScreenStateChanged(bool enabled);
+    void autoLockOnSessionEndChanged();
 
     // Skill bridge — forwarded from Chromium host to SkillHostManager
     void skillMessage(const QString& jsonData);
@@ -151,6 +157,8 @@ private:
     int m_signalingRetryCount = 0;
     int m_signalingNextRetryIn = 0;
     QString m_signalingError;
+    bool m_supportsAutoLockOnSessionEnd = false;
+    bool m_autoLockOnSessionEnd = false;
     
     // ICE server configuration (full config object with iceServers + lifetimeDuration)
     QJsonObject m_iceConfig;
@@ -170,6 +178,7 @@ private:
     void handleDisconnectResponse(const QJsonObject& message);
     void handlePrivacyScreenStateChanged(const QJsonObject& message);
     void handleSkillMessage(const QJsonObject& message);
+    void handleSetAutoLockOnSessionEndResult(const QJsonObject& message);
 };
 
 } // namespace quickdesk

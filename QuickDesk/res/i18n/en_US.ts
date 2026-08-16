@@ -1504,6 +1504,16 @@ Frame rate: %3 fps</source>
         <translation>Automatically black out the physical screen when a remote client connects</translation>
     </message>
     <message>
+        <location filename="../../qml/pages/SettingsPage.qml" line="251"/>
+        <source>Lock device when remote sessions end</source>
+        <translation>Lock device when remote sessions end</translation>
+    </message>
+    <message>
+        <location filename="../../qml/pages/SettingsPage.qml" line="256"/>
+        <source>Lock this device when the last remote session ends, including unexpected disconnections</source>
+        <translation>Lock this device when the last remote session ends, including unexpected disconnections</translation>
+    </message>
+    <message>
         <location filename="../../qml/pages/SettingsPage.qml" line="247"/>
         <source>Network</source>
         <translation>Network</translation>
